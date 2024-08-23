@@ -17,20 +17,29 @@ typedef struct {
     int hidden_dim; // for ffn layers
     int n_layers; // number of layers
     int n_heads; // number of attention heads
-    int patch_size; // patch size for each token
+    int patch_dim; // patch size for each token
     float dropout; // dropout in the ffn layers
+    int img_width; // width of the image
+    int img_height; // height of the image
+    int patch_width; // width of the patch
+    int patch_height; // height of the patch
+    int n_classes; // the number of classes for the classification head
 } Config;
 
 typedef struct {
+    float* patch2dim_weights; // (patch_dim, dim)
+    float* pos_emb_weights; // (num_patches, dim)
     float* norm_att_weights; // (layer, dim) norm weights
     float* norm_ffn_weights; // (layer, dim) ffn weights
     // weights for matmuls. note dim == n_heads * head_size
     float* wq; //(layer, dim, n_heads * head_size)
     float* wk; // (layer, dim, n_heads * head_size)
+    float* wv; // (layer, dim, n_heads * head_size)
     float* wo; // (layer, dim, n_heads * head_size)
     // floats for the ffn
     float* w1; // (layer, hidden_dim, dim)
     float* w2; // (layer, hidden_dim, dim)
+    float* w_cls_token; // (dim,)
     // classifier weights for the logits, on the last layers
     float* wcls;
 } TransformerWeights;
@@ -69,4 +78,62 @@ void malloc_run_state(RunState* s, Config* p) {
     s->xb2 = calloc(p->dim, sizeof(float));
     s->hb = calloc(p->hidden_dim, sizeof(float));
     s->hb2 = calloc(p->hidden_dim, sizeof(float));
+    s->q = calloc(p->dim, sizeof(float));
+
+    int num_patches = (int) (p->img_width / p->patch_width) * (p->img_height / p->patch_height);
+    s->key_cache = calloc(p->n_layers * num_patches * p->dim, sizeof(float));
+    s->value_cache = calloc(p->n_layers * num_patches * p->dim, sizeof(float));
+    s->att = calloc(p->n_layers * num_patches, sizeof(float));
+    s->logits = calloc(p->n_classes, sizeof(float));
+    // ensure all mallocs went fine
+    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q || !s->key_cache
+        || !s->value_cache || !s->att || !s->logits) {
+        fprintf(stderr, "malloc failed!\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void free_run_state(RunState* s) {
+    free(s->x);
+    free(s->xb);
+    free(s->xb2);
+    free(s->hb);
+    free(s->hb2);
+    free(s->q);
+    free(s->att);
+    free(s->logits);
+    free(s->key_cache);
+    free(s->value_cache);
+}
+
+void memory_map_weights(TransformerWeights *w, Config* p, float* ptr,
+        int shared_weights) {
+    // make sure the multiplication below are done in 64bit to fit the parameter counts of 13B+ models
+    unsigned long long n_layers = p->n_layers;
+    int head_size = p->dim / p->n_heads;
+    int num_patches = (int) (p->img_width / p->patch_width) * (p->img_height / p->patch_height);
+
+    w->patch2dim_weights = ptr;
+    ptr += p->patch_dim * p->dim;
+    w->pos_emb_weights = ptr;
+    ptr += (num_patches + 1) * p->dim;
+    w->w_cls_token = ptr;
+    ptr += p->dim;
+    w->norm_att_weights = ptr;
+    ptr += p->n_layers * p->dim;
+    w->wq = ptr;
+    ptr += n_layers * p->dim * (p->n_heads * head_size);
+    w->wk = ptr;
+    ptr += n_layers * p->dim * (p->n_heads * head_size);
+    w->wv = ptr;
+    ptr += n_layers * p->dim * (p->n_heads * head_size);
+    w->wo = ptr;
+    ptr += n_layers * p->dim * (p->n_heads * head_size);
+    w->norm_ffn_weights = ptr;
+    ptr += n_layers * p->dim;
+    w->w1 = ptr;
+    ptr += n_layers * p->dim * p->hidden_dim;
+    w->w2 = ptr;
+    ptr += n_layers * p->dim * p->hidden_dim;
+    w->wcls = ptr;
 }
