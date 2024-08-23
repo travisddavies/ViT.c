@@ -106,8 +106,7 @@ void free_run_state(RunState* s) {
     free(s->value_cache);
 }
 
-void memory_map_weights(TransformerWeights *w, Config* p, float* ptr,
-        int shared_weights) {
+void memory_map_weights(TransformerWeights *w, Config* p, float* ptr) {
     // make sure the multiplication below are done in 64bit to fit the parameter counts of 13B+ models
     unsigned long long n_layers = p->n_layers;
     int head_size = p->dim / p->n_heads;
