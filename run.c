@@ -136,3 +136,36 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr) {
     ptr += n_layers * p->dim * p->hidden_dim;
     w->wcls = ptr;
 }
+
+void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weights,
+        int* fd, float** data, ssize_t* file_size) {
+    FILE* file = fopen(checkpoint, "rb");
+    if (!file) {
+        fprintf(stderr, "Couldn't open file%s\n", checkpoint);
+        exit(EXIT_FAILURE);
+    }
+    // figure out the file size
+    fseek(file, 0, SEEK_END); // move file pointer to end of file
+    *file_size = ftell(file); // get the file size, in bytes
+    fclose(file);
+    // memory map the Transformer weights into the data pointer
+    *fd = open(checkpoint, O_RDONLY); // open in read only mode
+    if (*fd == -1) {
+        fprintf(stderr, "open failed!\n");
+        exit(EXIT_FAILURE);
+    }
+    *data = mmap(NULL, *file_size, PROT_READ, MAP_PRIVATE, *fd, 0);
+    if (*data == MAP_FAILED) {
+        fprintf(stderr, "mmap failed!\n");
+        exit(EXIT_FAILURE);
+    }
+    float* weights_ptr = *data + sizeof(Config) / sizeof(float);
+    memory_map_weights(weights, config, weights_ptr);
+}
+
+void build_transformer(Transformer *t, char* checkpoint_path) {
+    // read in the Config and the Weights from the checkpoint
+    read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
+    // allocate the RunState buffers
+    malloc_run_state(&t->state, &t->config);
+}
