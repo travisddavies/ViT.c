@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -175,4 +176,26 @@ void free_tranformer(Transformer* t) {
     if (t->fd != -1) { close(t->fd); }
     // free the RunState buffers
     free_run_state(&t->state);
+}
+
+// ----------------------------------------------------------------------------
+// Neural net blocks; the dynamics of the Transformer
+void layer_norm(float* o, float* x, float* weight, int size) {
+    // calculate the mean
+    float ss = 0.0f;
+    for (int i = 0; i < size; i++) {
+        ss += x[i];
+    }
+    float mean = ss / size;
+    // now calculate the std deviation
+    ss = 0.0f;
+    for (int i = 0; i < size; i++) {
+        float numerator = x - mean;
+        numerator *= numerator;
+        ss += numerator;
+    }
+    float std_dev = sqrtf(ss / size);
+    for (int i = 0; i < size; i++) {
+        o[i] = (x[i] - mean) / sqrtf(std_dev);
+    }
 }
