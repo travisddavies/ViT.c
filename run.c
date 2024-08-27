@@ -183,6 +183,7 @@ void free_tranformer(Transformer* t) {
 void layer_norm(float* o, float* x, float* weight, int size) {
     // calculate the mean
     float ss = 0.0f;
+    const float epsilon = 1e-5f;
     for (int i = 0; i < size; i++) {
         ss += x[i];
     }
@@ -190,12 +191,47 @@ void layer_norm(float* o, float* x, float* weight, int size) {
     // now calculate the std deviation
     ss = 0.0f;
     for (int i = 0; i < size; i++) {
-        float numerator = x - mean;
+        float numerator = x[i] - mean;
         numerator *= numerator;
         ss += numerator;
     }
-    float std_dev = sqrtf(ss / size);
+    float variance = ss / size;
+    float std_dev = sqrtf(variance + epsilon);
     for (int i = 0; i < size; i++) {
-        o[i] = (x[i] - mean) / sqrtf(std_dev);
+        o[i] = (x[i] - mean) / std_dev;
     }
+}
+
+void softmax(float* x, int size) {
+    // find max value (for numerical stability)
+    float max_val = x[0];
+    for (int i = 0; i < size; i++) {
+        if (max_val < x[i]) max_val = x[i];
+    }
+    float sum = 0.0f;
+    for (int i = 0; i < size; i++) {
+        x[i] = expf(x[i] - max_val);
+        sum += x[i];
+    }
+    for (int i = 0; i < size; i++) {
+        x[i] /= sum;
+    }
+}
+
+void matmul(float* xout, float* x, float* w, int n, int d) {
+    // W (d,n) @ x (n,) -> xout (d,)
+    // by far the most amount of time is spent inside this little function
+    int i;
+    #pragma omp parallel for private(i)
+    for (int i = 0; i < d; i++) {
+        float val = 0.0f;
+        for (int j = 0; j < n; j++) {
+            val += w[i * n + j] * x[j];
+        }
+        xout[i] = val;
+    }
+}
+
+void forward(Transformer* transformer, int token, int pos) {
+
 }
