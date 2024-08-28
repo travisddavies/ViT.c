@@ -28,6 +28,7 @@ typedef struct {
     int patch_width; // width of the patch
     int patch_height; // height of the patch
     int n_classes; // the number of classes for the classification head
+    int img_channels; // the number of channels in the input image
 } Config;
 
 typedef struct {
@@ -183,7 +184,7 @@ void free_tranformer(Transformer* t) {
 
 // ----------------------------------------------------------------------------
 // Neural net blocks; the dynamics of the Transformer
-void layer_norm(float* o, float* x, float* weight, int size) {
+void layer_norm(float* o, float* x, int size) {
     // calculate the mean
     float ss = 0.0f;
     const float epsilon = 1e-5f;
@@ -253,11 +254,15 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
    int n_h = img_height / p->patch_height;
    int n_w = img_width / p->patch_width;
    int n_patches = n_h * n_w;
+   int patch_dim = p->patch_width * p->patch_height * p->img_channels;
    for (int patch_no = 0; patch_no < n_patches; patch_no++) {
        for (int i = 0; i < p->patch_height; i++) {
-           int src_idx = patch_no * p->patch_width + (i * img_width);
-           int patch_idx = i * p->patch_width;
-           memcpy(x + patch_idx, img + src_idx, p->patch_width*sizeof(*x));
+           int src_idx = p->img_channels * (patch_no * p->patch_width + (i * img_width));
+           int patch_idx = i * p->patch_width * p->img_channels;
+           int segment_dim = p->patch_width * p->img_channels;
+           memcpy(x + patch_idx, img + src_idx, segment_dim*sizeof(*x));
        }
+       layer_norm(s->xb, s->x, patch_dim);
+       matmul(s->x, s->xb, w->patch2dim_weights, patch_dim, p->dim);
    }
 }
