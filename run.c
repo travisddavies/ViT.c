@@ -1,7 +1,10 @@
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
+#include <sys/types.h>
 #include <time.h>
 #include <fcntl.h>
 #if defined _WIN32
@@ -232,6 +235,33 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
-void forward(Transformer* transformer, int token, int pos) {
+void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_width) {
+   // a few convenience variables
+   Config* p = &transformer->config;
+   TransformerWeights* w = &transformer->weights;
+   RunState* s = &transformer->state;
+   float* x = s->x;
+   int dim = p->dim;
+   int hidden_dim = p->hidden_dim;
+   int head_size = dim / p->n_heads;
 
+   if (img_height % p->patch_height != 0 || img_width % p->patch_width != 0) {
+        fprintf(stderr, "Dimensions of image not divisable by the patch height");
+        exit(EXIT_FAILURE);
+   }
+
+   int n_h = img_height / p->patch_height;
+   int n_w = img_width / p->patch_width;
+   int c = 0;
+   int patch_idx = 0;
+   for (int i = 0; i < n_h; i++) {
+       for (int j = 0; j < n_w; j++) {
+           for (int y = 0; y < p->patch_height; y++) {
+               int src_index = (i * p->patch_height + y) + j * p->patch_width;
+               int space = i * p->patch_height + j * p->patch_width;
+               memcpy(x + patch_idx, img + src_index, p->patch_width*sizeof(*x));
+               patch_idx += p->patch_width;
+           }
+       }
+   }
 }
