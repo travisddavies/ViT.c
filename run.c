@@ -252,16 +252,12 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
 
    int n_h = img_height / p->patch_height;
    int n_w = img_width / p->patch_width;
-   int c = 0;
-   int patch_idx = 0;
-   for (int i = 0; i < n_h; i++) {
-       for (int j = 0; j < n_w; j++) {
-           for (int y = 0; y < p->patch_height; y++) {
-               int src_index = (i * p->patch_height + y) + j * p->patch_width;
-               int space = i * p->patch_height + j * p->patch_width;
-               memcpy(x + patch_idx, img + src_index, p->patch_width*sizeof(*x));
-               patch_idx += p->patch_width;
-           }
+   int n_patches = n_h * n_w;
+   for (int patch_no = 0; patch_no < n_patches; patch_no++) {
+       for (int i = 0; i < p->patch_height; i++) {
+           int src_idx = patch_no * p->patch_width + (i * img_width);
+           int patch_idx = i * p->patch_width;
+           memcpy(x + patch_idx, img + src_idx, p->patch_width*sizeof(*x));
        }
    }
 }
