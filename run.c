@@ -120,7 +120,7 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr) {
     w->patch2dim_weights = ptr;
     ptr += p->patch_dim * p->dim;
     w->pos_emb_weights = ptr;
-    ptr += (num_patches + 1) * p->dim;
+    ptr += num_patches * p->dim;
     w->w_cls_token = ptr;
     ptr += p->dim;
     w->norm_att_weights = ptr;
@@ -236,6 +236,12 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
+void pos_encoding(float* xout, float* x, float* w, int n, int pos) {
+    for (int i = 0; i < n; i++) {
+        xout[i] = x[i] + w[i + n*pos];
+    }
+}
+
 void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_width) {
    // a few convenience variables
    Config* p = &transformer->config;
@@ -256,13 +262,23 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
    int n_patches = n_h * n_w;
    int patch_dim = p->patch_width * p->patch_height * p->img_channels;
    for (int patch_no = 0; patch_no < n_patches; patch_no++) {
+       // extract a patch to become a 1D token
        for (int i = 0; i < p->patch_height; i++) {
            int src_idx = p->img_channels * (patch_no * p->patch_width + (i * img_width));
            int patch_idx = i * p->patch_width * p->img_channels;
            int segment_dim = p->patch_width * p->img_channels;
            memcpy(x + patch_idx, img + src_idx, segment_dim*sizeof(*x));
        }
+       // then normalise the patch and feed it through a feed forward layer,
+       // this acts like a linear transformation layer for the token to match
+       // the dimensions of the transformer
        layer_norm(s->xb, s->x, patch_dim);
        matmul(s->x, s->xb, w->patch2dim_weights, patch_dim, p->dim);
+       layer_norm(s->xb, s->x, p->dim);
+
+       // now we apply positional encoding to the patch embedding
+       for (int i = 0; i < p->dim; i++) {
+           s->xb[i] += transformer->weights.pos_emb_weights[i + p->dim*patch_no];
+       }
    }
 }
