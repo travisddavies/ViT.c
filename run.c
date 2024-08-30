@@ -261,14 +261,15 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
    int n_w = img_width / p->patch_width;
    int n_patches = n_h * n_w;
    int patch_dim = p->patch_width * p->patch_height * p->img_channels;
-   for (int patch_no = 0; patch_no < n_patches; patch_no++) {
-       // extract a patch to become a 1D token
-       for (int i = 0; i < p->patch_height; i++) {
-           int src_idx = p->img_channels * (patch_no * p->patch_width + (i * img_width));
-           int patch_idx = i * p->patch_width * p->img_channels;
-           int segment_dim = p->patch_width * p->img_channels;
-           memcpy(x + patch_idx, img + src_idx, segment_dim*sizeof(*x));
-       }
+   for (int unsigned long long l = 0; l < p->n_layers; l++) {
+       for (int patch_no = 0; patch_no < n_patches; patch_no++) {
+           // extract a patch to become a 1D token
+           for (int i = 0; i < p->patch_height; i++) {
+               int src_idx = p->img_channels * (patch_no * p->patch_width + (i * img_width));
+               int patch_idx = i * p->patch_width * p->img_channels;
+               int segment_dim = p->patch_width * p->img_channels;
+               memcpy(x + patch_idx, img + src_idx, segment_dim*sizeof(*x));
+           }
        // then normalise the patch and feed it through a feed forward layer,
        // this acts like a linear transformation layer for the token to match
        // the dimensions of the transformer
@@ -280,5 +281,35 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
        for (int i = 0; i < p->dim; i++) {
            s->xb[i] += transformer->weights.pos_emb_weights[i + p->dim*patch_no];
        }
-   }
+       matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
+       matmul(s->q, s->xb, w->wk + l*dim*dim, dim, dim);
+       matmul(s->v, s->xb, w->wv + l*dim*dim, dim, dim);
+
+       // multihead attention. Iterate over all heads
+       int h;
+       for (h = 0; h < p->n_heads; h++) {
+           // get the query vector for this head
+           float* q = s->q + h * head_size;
+           // attention scores for this head
+           float* att = s->att + h * n_patches;
+           // iterate over all timesteps, including the current one
+           for (int t = 0; t <= n_patches; t++) {
+               // get the key vector for this head and at this timestep
+               float* k = s->k + h * head_size;
+               // calculate the attention score as the dot product of q and k
+               float score = 0.0f;
+               for (int i = 0; i < head_size; i++) {
+                   score += q[i] * k[i];
+               }
+               score /= sqrtf(head_size);
+               // save the score to the attention buffer
+               att[t] = score;
+           }
+
+
+       }
+       }
+    }
 }
+
+
