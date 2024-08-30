@@ -295,7 +295,7 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
            // iterate over all timesteps, including the current one
            for (int t = 0; t <= n_patches; t++) {
                // get the key vector for this head and at this timestep
-               float* k = s->k + h * head_size;
+               float* k = s->k + h * head_size + t * head_size;
                // calculate the attention score as the dot product of q and k
                float score = 0.0f;
                for (int i = 0; i < head_size; i++) {
@@ -305,9 +305,45 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
                // save the score to the attention buffer
                att[t] = score;
            }
+           // softmax the scores to get attention weights, from 0...pos inclusively
+           softmax(att, n_patches*head_size);
 
-
+           // weighted sum of the values, store back into xb
+           float* xb = s->xb + h * head_size;
+           memset(xb, 0, head_size * sizeof(float));
+           for (int t = 0; t < n_patches; t++) {
+               // get the value vector for this head and at this timestep
+               float* v = s->v + h * head_size + t * head_size;
+               // get the attention weight for this timestep
+               float a = att[t];
+               // accumulate the weighted value into xb
+               for (int i = 0; i < head_size; i++) {
+                   xb[i] += a * v[i];
+               }
+           }
        }
+
+       // DOUBLE CHECK THIS!! DOESN'T SEEM CORRECT
+       // final matmul to get the output of the attention
+       matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+
+       // residual connection back into x
+       for (int i = 0; i < dim; i++) {
+           x[i] += s->xb2[i];
+       }
+
+       for (int i = 0; i < dim; i)
+
+       // ffn norm
+       for (int i = 0; i < n_patches; i++) {
+           layer_norm(s->xb + i*p->dim, x + i*p->dim, p->dim);
+       }
+
+       // Now for FFN
+       matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
+
+
+
        }
     }
 }
