@@ -243,7 +243,7 @@ void pos_encoding(float* xout, float* x, float* w, int n, int pos) {
     }
 }
 
-void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_width) {
+float* forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_width) {
    // a few convenience variables
    Config* p = &transformer->config;
    TransformerWeights* w = &transformer->weights;
@@ -368,5 +368,3 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
     matmul(s->logits, x, w->wcls, p->dim, p->n_classes);
     return s->logits;
 }
-
-
