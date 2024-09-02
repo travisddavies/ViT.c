@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <fcntl.h>
+#define PI 3.141592654
 #if defined _WIN32
     #include "win.h"
 #else
@@ -270,82 +271,102 @@ void forward(Transformer* transformer, uint8_t* img, uint img_height, uint img_w
                int segment_dim = p->patch_width * p->img_channels;
                memcpy(x + patch_idx, img + src_idx, segment_dim*sizeof(*x));
            }
-       // then normalise the patch and feed it through a feed forward layer,
-       // this acts like a linear transformation layer for the token to match
-       // the dimensions of the transformer
-       layer_norm(s->xb, s->x, patch_dim);
-       matmul(s->x, s->xb, w->patch2dim_weights, patch_dim, p->dim);
-       layer_norm(s->xb, s->x, p->dim);
+           // then normalise the patch and feed it through a feed forward layer,
+           // this acts like a linear transformation layer for the token to match
+           // the dimensions of the transformer
+           layer_norm(s->xb, s->x, patch_dim);
+           matmul(s->x, s->xb, w->patch2dim_weights, patch_dim, p->dim);
+           layer_norm(s->xb, s->x, p->dim);
 
-       // now we apply positional encoding to the patch embedding
-       for (int i = 0; i < p->dim; i++) {
-           s->xb[i] += transformer->weights.pos_emb_weights[i + p->dim*patch_no];
-       }
-       matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
-       matmul(s->q, s->xb, w->wk + l*dim*dim, dim, dim);
-       matmul(s->v, s->xb, w->wv + l*dim*dim, dim, dim);
-
-       // multihead attention. Iterate over all heads
-       int h;
-       for (h = 0; h < p->n_heads; h++) {
-           // get the query vector for this head
-           float* q = s->q + h * head_size;
-           // attention scores for this head
-           float* att = s->att + h * n_patches;
-           // iterate over all timesteps, including the current one
-           for (int t = 0; t <= n_patches; t++) {
-               // get the key vector for this head and at this timestep
-               float* k = s->k + h * head_size + t * head_size;
-               // calculate the attention score as the dot product of q and k
-               float score = 0.0f;
-               for (int i = 0; i < head_size; i++) {
-                   score += q[i] * k[i];
-               }
-               score /= sqrtf(head_size);
-               // save the score to the attention buffer
-               att[t] = score;
+           // now we apply positional encoding to the patch embedding
+           for (int i = 0; i < p->dim; i++) {
+               s->xb[i] += transformer->weights.pos_emb_weights[i + p->dim*patch_no];
            }
-           // softmax the scores to get attention weights, from 0...pos inclusively
-           softmax(att, n_patches*head_size);
+           matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
+           matmul(s->q, s->xb, w->wk + l*dim*dim, dim, dim);
+           matmul(s->v, s->xb, w->wv + l*dim*dim, dim, dim);
 
-           // weighted sum of the values, store back into xb
-           float* xb = s->xb + h * head_size;
-           memset(xb, 0, head_size * sizeof(float));
-           for (int t = 0; t < n_patches; t++) {
-               // get the value vector for this head and at this timestep
-               float* v = s->v + h * head_size + t * head_size;
-               // get the attention weight for this timestep
-               float a = att[t];
-               // accumulate the weighted value into xb
-               for (int i = 0; i < head_size; i++) {
-                   xb[i] += a * v[i];
+           // multihead attention. Iterate over all heads
+           int h;
+           for (h = 0; h < p->n_heads; h++) {
+               // get the query vector for this head
+               float* q = s->q + h * head_size;
+               // attention scores for this head
+               float* att = s->att + h * n_patches;
+               // iterate over all timesteps, including the current one
+               for (int t = 0; t <= n_patches; t++) {
+                   // get the key vector for this head and at this timestep
+                   float* k = s->k + h * head_size + t * head_size;
+                   // calculate the attention score as the dot product of q and k
+                   float score = 0.0f;
+                   for (int i = 0; i < head_size; i++) {
+                       score += q[i] * k[i];
+                   }
+                   score /= sqrtf(head_size);
+                   // save the score to the attention buffer
+                   att[t] = score;
+               }
+               // softmax the scores to get attention weights, from 0...pos inclusively
+               softmax(att, n_patches*head_size);
+
+               // weighted sum of the values, store back into xb
+               float* xb = s->xb + h * head_size;
+               memset(xb, 0, head_size * sizeof(float));
+               for (int t = 0; t < n_patches; t++) {
+                   // get the value vector for this head and at this timestep
+                   float* v = s->v + h * head_size + t * head_size;
+                   // get the attention weight for this timestep
+                   float a = att[t];
+                   // accumulate the weighted value into xb
+                   for (int i = 0; i < head_size; i++) {
+                       xb[i] += a * v[i];
+                   }
                }
            }
-       }
 
-       // DOUBLE CHECK THIS!! DOESN'T SEEM CORRECT
-       // final matmul to get the output of the attention
-       matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+           // DOUBLE CHECK THIS!! DOESN'T SEEM CORRECT
+           // final matmul to get the output of the attention
+           matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
 
-       // residual connection back into x
-       for (int i = 0; i < dim; i++) {
-           x[i] += s->xb2[i];
-       }
-
-       for (int i = 0; i < dim; i)
-
-       // ffn norm
-       for (int i = 0; i < n_patches; i++) {
-           layer_norm(s->xb + i*p->dim, x + i*p->dim, p->dim);
-       }
-
-       // Now for FFN
-       matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
+           // residual connection back into x
+           for (int i = 0; i < n_patches*dim; i++) {
+               x[i] += s->xb2[i];
+           }
 
 
+           // Now for FFN
+           // 1. layer_norm
+           // 2. linear(dim, hidden_dim)
+           // 3. GELU(x)
+           // 4. Dropout TODO:
+           // 5. linear(hidden_dim, dim)
+           // 6. Dropout TODO:
+           // layer norm
+           for (int i = 0; i < n_patches; i++) {
+               layer_norm(x + i*p->dim, x + i*p->dim, dim);
+           }
+           matmul(s->hb, s->x, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
+           // GELU activation function
+           for (int i = 0; i < n_patches*p->hidden_dim; i++) {
+               // GILU(x) = 0.5 * x * (1 + Tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+               float comp1 = 1 + tanhf(sqrtf(2/PI) * (s->hb[i] + 0.044715 * pow(s->hb[i], 3)));
+               float comp2 = 0.5 * s-> hb[i] * comp1;
+               s->hb[i] = comp2;
+           }
+           matmul(s->xb, s->hb, w->w2 + l+dim*hidden_dim, hidden_dim, dim);
 
+           // residual connection back into x
+           for (int i = 0; i < n_patches*dim; i++) {
+               x[i] += s->xb[i];
+           }
+
+           for (int i = 0; i < n_patches; i++) {
+               layer_norm(x + i*p->dim, x + i*p->dim, p->dim);
+           }
        }
     }
+    matmul(s->logits, x, w->wcls, p->dim, p->n_classes);
+    return s->logits;
 }
 
 
