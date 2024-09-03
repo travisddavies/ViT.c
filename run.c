@@ -66,7 +66,6 @@ typedef struct {
     float* value_cache; // (layer, seq_len, dim)
 } RunState;
 
-
 typedef struct {
     Config config; // the hyperparameters of the architecture (the blueprint)
     TransformerWeights weights; // the weights of the model
@@ -262,7 +261,7 @@ float* forward(Transformer* transformer, uint8_t* img, uint img_height, uint img
    int n_w = img_width / p->patch_width;
    int n_patches = n_h * n_w;
    int patch_dim = p->patch_width * p->patch_height * p->img_channels;
-   for (int unsigned long long l = 0; l < p->n_layers; l++) {
+   for (int l = 0; l < p->n_layers; l++) {
        for (int patch_no = 0; patch_no < n_patches; patch_no++) {
            // extract a patch to become a 1D token
            for (int i = 0; i < p->patch_height; i++) {
@@ -324,7 +323,6 @@ float* forward(Transformer* transformer, uint8_t* img, uint img_height, uint img
                }
            }
 
-           // DOUBLE CHECK THIS!! DOESN'T SEEM CORRECT
            // final matmul to get the output of the attention
            matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
 
@@ -348,7 +346,7 @@ float* forward(Transformer* transformer, uint8_t* img, uint img_height, uint img
            matmul(s->hb, s->x, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
            // GELU activation function
            for (int i = 0; i < n_patches*p->hidden_dim; i++) {
-               // GILU(x) = 0.5 * x * (1 + Tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+               // GELU(x) = 0.5 * x * (1 + Tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
                float comp1 = 1 + tanhf(sqrtf(2/PI) * (s->hb[i] + 0.044715 * pow(s->hb[i], 3)));
                float comp2 = 0.5 * s-> hb[i] * comp1;
                s->hb[i] = comp2;
