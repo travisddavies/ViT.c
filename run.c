@@ -366,3 +366,4 @@ float* forward(Transformer* transformer, uint8_t* img, uint img_height, uint img
     matmul(s->logits, x, w->wcls, p->dim, p->n_classes);
     return s->logits;
 }
+
